@@ -24,7 +24,6 @@ import {
   Users,
   CheckCircle2,
   X,
-  RotateCcw
 } from 'lucide-react';
 
 type Restaurant = {
@@ -108,11 +107,17 @@ const restaurants: Restaurant[] = [
 ];
 
 const categories = [
-  { label: 'อาหารไทย', icon: Soup },
-  { label: 'พิซซ่า', icon: Pizza },
-  { label: 'อาหารญี่ปุ่น', icon: Utensils },
-  { label: 'คาเฟ่', icon: Coffee }
+  { label: 'อาหารไทย', value: 'อาหารไทย', icon: Soup },
+  { label: 'อิตาเลียน', value: 'อิตาเลียน', icon: Pizza },
+  { label: 'คาเฟ่', value: 'คาเฟ่', icon: Coffee }
 ];
+
+const bookingFilters = [
+  { id: 'all', label: 'ทั้งหมด' },
+  { id: 'upcoming', label: 'กำลังจะถึง' },
+  { id: 'completed', label: 'เสร็จสิ้น' },
+  { id: 'cancelled', label: 'ยกเลิก' }
+] as const;
 
 const times = [
   '11:00',
@@ -134,8 +139,17 @@ type Booking = {
   date: string;
   time: string;
   guests: number;
-  status: string;
+  status: 'ยืนยันแล้ว' | 'ยกเลิกแล้ว';
 };
+
+type BookingFilter = (typeof bookingFilters)[number]['id'];
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export default function Page() {
   const [tab, setTab] = useState<Tab>('home');
@@ -146,11 +160,15 @@ export default function Page() {
   const [query, setQuery] = useState('');
   const [favorites, setFavorites] = useState<number[]>([]);
 
-  const [date, setDate] = useState('2026-11-20');
+  const [date, setDate] = useState(() => formatLocalDate(new Date()));
   const [time, setTime] = useState('12:00');
   const [guests, setGuests] = useState(2);
+  const [bookingError, setBookingError] = useState('');
+  const [bookingFilter, setBookingFilter] = useState<BookingFilter>('all');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
 
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const today = formatLocalDate(new Date());
 
   const filtered = useMemo(() => {
     return restaurants.filter((r) => {
@@ -161,9 +179,27 @@ export default function Page() {
         .toLowerCase()
         .includes(query.toLowerCase());
 
-      return matchCategory && matchName;
+      const matchFavorite = !favoritesOnly || favorites.includes(r.id);
+      return matchCategory && matchName && matchFavorite;
     });
-  }, [category, query]);
+  }, [category, favorites, favoritesOnly, query]);
+
+  const visibleBookings = useMemo(
+    () =>
+      bookings.filter((booking) => {
+        if (bookingFilter === 'cancelled') {
+          return booking.status === 'ยกเลิกแล้ว';
+        }
+        if (bookingFilter === 'completed') {
+          return booking.status === 'ยืนยันแล้ว' && booking.date < today;
+        }
+        if (bookingFilter === 'upcoming') {
+          return booking.status === 'ยืนยันแล้ว' && booking.date >= today;
+        }
+        return true;
+      }),
+    [bookingFilter, bookings, today]
+  );
 
   // เปิดรายละเอียดร้าน
   const openRestaurant = (r: Restaurant) => {
@@ -173,6 +209,11 @@ export default function Page() {
 
   // จองร้านอาหาร
   const reserve = () => {
+    if (date < today || !times.includes(time) || guests < 1 || guests > 12) {
+      setBookingError('กรุณาเลือกวันที่ เวลา และจำนวนที่นั่งให้ถูกต้อง');
+      return;
+    }
+
     const newBooking: Booking = {
       id: Date.now(),
       restaurant: selected,
@@ -183,6 +224,7 @@ export default function Page() {
     };
 
     setBookings((prev) => [newBooking, ...prev]);
+    setBookingError('');
     setScreen('confirm');
   };
 
@@ -190,6 +232,14 @@ export default function Page() {
   const goTab = (t: Tab) => {
     setTab(t);
     setScreen('list');
+  };
+
+  const cancelBooking = (id: number) => {
+    setBookings((prev) =>
+      prev.map((booking) =>
+        booking.id === id ? { ...booking, status: 'ยกเลิกแล้ว' } : booking
+      )
+    );
   };
 
   // เพิ่มหรือลบร้านโปรด
@@ -224,9 +274,13 @@ export default function Page() {
             </div>
           </div>
 
-          <button className="icon-btn">
+          <button
+            className="icon-btn"
+            aria-label="ดูรายการจอง"
+            onClick={() => goTab('bookings')}
+          >
             <Bell size={20} />
-            <i className="notification-dot" />
+            {bookings.length > 0 && <i className="notification-dot" />}
           </button>
         </header>
 
@@ -271,12 +325,12 @@ export default function Page() {
               </div>
 
               <div className="categories">
-                {categories.map(({ label, icon: Icon }) => (
+                {categories.map(({ label, value, icon: Icon }) => (
                   <button
                     key={label}
                     className="category"
                     onClick={() => {
-                      setCategory(label);
+                      setCategory(value);
                       goTab('search');
                     }}
                   >
@@ -323,7 +377,12 @@ export default function Page() {
             <div className="page-title">
               <h1>ค้นหาร้านอาหาร</h1>
 
-              <button className="icon-btn">
+              <button
+                className={favoritesOnly ? 'icon-btn active' : 'icon-btn'}
+                aria-label={favoritesOnly ? 'แสดงร้านทั้งหมด' : 'แสดงร้านโปรดเท่านั้น'}
+                aria-pressed={favoritesOnly}
+                onClick={() => setFavoritesOnly((value) => !value)}
+              >
                 <SlidersHorizontal size={19} />
               </button>
             </div>
@@ -345,12 +404,7 @@ export default function Page() {
 
             {/* Category filters */}
             <div className="chips">
-              {[
-                'ทั้งหมด',
-                'อาหารไทย',
-                'คาเฟ่',
-                'อิตาเลียน'
-              ].map((c) => (
+              {['ทั้งหมด', ...categories.map(({ value }) => value)].map((c) => (
                 <button
                   key={c}
                   className={category === c ? 'chip active' : 'chip'}
@@ -377,7 +431,11 @@ export default function Page() {
                 <div className="empty">
                   <Search size={40} />
                   <h3>ไม่พบร้านอาหาร</h3>
-                  <p>ลองค้นหาด้วยคำอื่น</p>
+                  <p>
+                    {favoritesOnly && favorites.length === 0
+                      ? 'เพิ่มร้านในรายการโปรดเพื่อดูได้ที่นี่'
+                      : 'ลองปรับคำค้นหาหรือหมวดหมู่'}
+                  </p>
                 </div>
               )}
             </div>
@@ -389,21 +447,19 @@ export default function Page() {
           <section className="bookings-page">
             <div className="page-title">
               <h1>การจองของฉัน</h1>
-
-              <button
-                className="icon-btn"
-                onClick={() => setBookings([])}
-                title="ล้างรายการจอง"
-              >
-                <RotateCcw size={18} />
-              </button>
             </div>
 
             <div className="chips">
-              <button className="chip active">ทั้งหมด</button>
-              <button className="chip">กำลังจะถึง</button>
-              <button className="chip">เสร็จสิ้น</button>
-              <button className="chip">ยกเลิก</button>
+              {bookingFilters.map(({ id, label }) => (
+                <button
+                  key={id}
+                  className={bookingFilter === id ? 'chip active' : 'chip'}
+                  aria-pressed={bookingFilter === id}
+                  onClick={() => setBookingFilter(id)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             {bookings.length === 0 ? (
@@ -421,16 +477,28 @@ export default function Page() {
                   ค้นหาร้านอาหาร
                 </button>
               </div>
+            ) : visibleBookings.length === 0 ? (
+              <div className="empty">
+                <CalendarCheck size={46} />
+                <h3>ไม่พบรายการจอง</h3>
+                <p>ไม่มีรายการในหมวดหมู่นี้</p>
+              </div>
             ) : (
               <div className="list-restaurants">
-                {bookings.map((b) => (
+                {visibleBookings.map((b) => (
                   <div className="booking-card" key={b.id}>
                     <img src={b.restaurant.image} alt={b.restaurant.name} />
 
                     <div className="booking-info">
                       <div className="booking-title">
                         <strong>{b.restaurant.name}</strong>
-                        <span className="status-pill">
+                        <span
+                          className={
+                            b.status === 'ยกเลิกแล้ว'
+                              ? 'status-pill cancelled'
+                              : 'status-pill'
+                          }
+                        >
                           {b.status}
                         </span>
                       </div>
@@ -457,6 +525,14 @@ export default function Page() {
                       >
                         ดูรายละเอียด <ChevronRight size={14} />
                       </button>
+                      {b.status === 'ยืนยันแล้ว' && b.date >= today && (
+                        <button
+                          className="text-link cancel-booking"
+                          onClick={() => cancelBooking(b.id)}
+                        >
+                          ยกเลิกการจอง
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -475,27 +551,20 @@ export default function Page() {
             </div>
 
             <div className="profile-menu">
-              <button>
-                <UserRound />
-                ข้อมูลส่วนตัว
-                <ChevronRight />
-              </button>
-
-              <button>
+              <button
+                onClick={() => {
+                  setFavoritesOnly(true);
+                  goTab('search');
+                }}
+              >
                 <Heart />
                 ร้านโปรด ({favorites.length})
                 <ChevronRight />
               </button>
 
-              <button>
-                <Bell />
-                การแจ้งเตือน
-                <ChevronRight />
-              </button>
-
-              <button>
-                <SlidersHorizontal />
-                ตั้งค่า
+              <button onClick={() => goTab('bookings')}>
+                <CalendarDays />
+                การจองของฉัน ({bookings.length})
                 <ChevronRight />
               </button>
             </div>
@@ -514,6 +583,7 @@ export default function Page() {
               <button
                 className="back-float"
                 onClick={() => setScreen('list')}
+                aria-label="ย้อนกลับ"
               >
                 <ChevronLeft />
               </button>
@@ -521,6 +591,11 @@ export default function Page() {
               <button
                 className="heart-float"
                 onClick={() => toggleFavorite(selected.id)}
+                aria-label={
+                  favorites.includes(selected.id)
+                    ? 'นำออกจากร้านโปรด'
+                    : 'เพิ่มในร้านโปรด'
+                }
               >
                 <Heart
                   fill={
@@ -553,12 +628,6 @@ export default function Page() {
                 {selected.description}
               </p>
 
-              <div className="detail-tabs">
-                <button className="selected">ข้อมูลร้าน</button>
-                <button>เมนู</button>
-                <button>รีวิว</button>
-              </div>
-
               <div className="features">
                 <span>
                   <Utensils /> อาหาร
@@ -582,8 +651,11 @@ export default function Page() {
                 <input
                   type="date"
                   value={date}
-                  min={new Date().toISOString().split('T')[0]}
-                  onChange={(e) => setDate(e.target.value)}
+                  min={today}
+                  onChange={(e) => {
+                    setDate(e.target.value);
+                    setBookingError('');
+                  }}
                 />
               </label>
 
@@ -593,7 +665,10 @@ export default function Page() {
                   <button
                     key={t}
                     className={time === t ? 'time selected' : 'time'}
-                    onClick={() => setTime(t)}
+                    onClick={() => {
+                      setTime(t);
+                      setBookingError('');
+                    }}
                   >
                     {t}
                   </button>
@@ -633,6 +708,11 @@ export default function Page() {
                 <CalendarCheck size={18} />
                 ยืนยันการจอง
               </button>
+              {bookingError && (
+                <p className="form-error" role="alert">
+                  {bookingError}
+                </p>
+              )}
             </div>
           </section>
         )}
@@ -753,10 +833,16 @@ function RestaurantCard({
         style={{
           backgroundImage: `url(${r.image})`
         }}
-        onClick={onClick}
       >
         <button
+          className="image-open"
+          aria-label={`ดูรายละเอียด ${r.name}`}
+          onClick={onClick}
+        />
+        <button
           className="favorite"
+          aria-label={favorite ? 'นำออกจากร้านโปรด' : 'เพิ่มในร้านโปรด'}
+          aria-pressed={favorite}
           onClick={(e) => {
             e.stopPropagation();
             onFavorite();
@@ -769,10 +855,10 @@ function RestaurantCard({
         </button>
       </div>
 
-      <div className="card-info" onClick={onClick}>
+      <button className="card-info" onClick={onClick}>
         <strong>{r.name}</strong>
 
-        <div>
+        <span className="card-meta">
           <span className="rating">
             <Star size={12} fill="currentColor" />
             {r.rating}
@@ -782,8 +868,8 @@ function RestaurantCard({
             <MapPin size={12} />
             {r.distance}
           </span>
-        </div>
-      </div>
+        </span>
+      </button>
     </article>
   );
 }
@@ -803,38 +889,48 @@ function RestaurantRow({
 }) {
   return (
     <article className="restaurant-row">
-      <div
+      <button
         className="row-image"
         style={{
           backgroundImage: `url(${r.image})`
         }}
+        aria-label={`ดูรายละเอียด ${r.name}`}
         onClick={onClick}
       />
 
-      <div className="row-info" onClick={onClick}>
+      <button className="row-info" onClick={onClick}>
         <strong>{r.name}</strong>
 
         <small>{r.category}</small>
 
-        <div className="rating">
+        <span className="rating">
           <Star size={13} fill="currentColor" />
           {r.rating} ({r.reviews})
-        </div>
+        </span>
 
         <small>
           <MapPin size={13} />
           {r.distance}
         </small>
-      </div>
+      </button>
 
-      <button className="row-heart" onClick={onFavorite}>
+      <button
+        className="row-heart"
+        aria-label={favorite ? 'นำออกจากร้านโปรด' : 'เพิ่มในร้านโปรด'}
+        aria-pressed={favorite}
+        onClick={onFavorite}
+      >
         <Heart
           size={17}
           fill={favorite ? 'currentColor' : 'none'}
         />
       </button>
 
-      <button className="row-arrow" onClick={onClick}>
+      <button
+        className="row-arrow"
+        aria-label={`ดูรายละเอียด ${r.name}`}
+        onClick={onClick}
+      >
         <ChevronRight size={17} />
       </button>
     </article>

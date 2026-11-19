@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Image from 'next/image';
 import {
   Home,
   Search,
@@ -487,7 +488,12 @@ export default function Page() {
               <div className="list-restaurants">
                 {visibleBookings.map((b) => (
                   <div className="booking-card" key={b.id}>
-                    <img src={b.restaurant.image} alt={b.restaurant.name} />
+                    <Image
+                      src={b.restaurant.image}
+                      alt={b.restaurant.name}
+                      width={88}
+                      height={92}
+                    />
 
                     <div className="booking-info">
                       <div className="booking-title">
@@ -728,7 +734,12 @@ export default function Page() {
             <p>ระบบบันทึกการจองของคุณแล้ว</p>
 
             <div className="confirm-card">
-              <img src={selected.image} alt={selected.name} />
+              <Image
+                src={selected.image}
+                alt={selected.name}
+                width={92}
+                height={100}
+              />
 
               <div>
                 <strong>{selected.name}</strong>
